@@ -1,0 +1,62 @@
+name: Build and trigger deploy
+on:
+  push:
+    branches: [ master ]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image_ref: ${{ steps.select_tag.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PKGS_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/wordpress
+          tags: |
+            type=sha
+            type=ref,event=branch
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - id: select_tag
+        run: |
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | tr ' ' '\n' | grep '^ghcr.io/.*/sha-' | head -n1)
+          echo "image_ref=$TAG" >> $GITHUB_OUTPUT
+
+  trigger-iac:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger IaC repo (repository_dispatch)
+        env:
+          IAC_REPO: HijazP/cm-wordpress-iac
+          IAC_BRANCH: master
+          IMAGE_REF: ${{ needs.build.outputs.image_ref }}
+          DISPATCH_TOKEN: ${{ secrets.IAC_REPO_DISPATCH_TOKEN }}
+        run: |
+          test -n "${IMAGE_REF}" || { echo "image_ref missing"; exit 1; }
+          curl -s -X POST \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${IAC_REPO}/dispatches \
+            -d "{\"event_type\":\"deploy-wordpress\",\"client_payload\":{\"image_ref\":\"${IMAGE_REF}\",\"ref\":\"${IAC_BRANCH}\"}}"

@@ -1,0 +1,60 @@
+services:
+  db:
+    container_name: wordpress-db
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${WORDPRESS_DB_NAME:-wordpress}
+      MYSQL_USER: ${WORDPRESS_DB_USER:-wp_admin}
+      MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD:-wp_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+    command: ["--default-authentication-plugin=mysql_native_password", "--innodb-buffer-pool-size=64M"]
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wordpress
+
+  wordpress:
+    container_name: wordpress-app
+    build:
+      context: .
+    image: ${WORDPRESS_IMAGE:-wordpress:latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER:-wp_admin}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD:-wp_password}
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME:-wordpress}
+      WP_STATELESS_MEDIA_BUCKET: ${WP_STATELESS_MEDIA_BUCKET:-local-bucket}
+      WP_STATELESS_MEDIA_MODE: ${WP_STATELESS_MEDIA_MODE:-ephemeral}
+      WP_STATELESS_MEDIA_ROOT_DIR: ${WP_STATELESS_MEDIA_ROOT_DIR:-uploads}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_STATELESS_MEDIA_BUCKET', getenv('WP_STATELESS_MEDIA_BUCKET'));
+        define('WP_STATELESS_MEDIA_MODE', getenv('WP_STATELESS_MEDIA_MODE'));
+        define('WP_STATELESS_MEDIA_ROOT_DIR', getenv('WP_STATELESS_MEDIA_ROOT_DIR'));
+    volumes:
+      - wp_data:/var/www/html
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/license.txt > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - wordpress
+
+volumes:
+  db_data:
+  wp_data:
+
+networks:
+  wordpress:
