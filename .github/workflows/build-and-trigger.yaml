@@ -40,8 +40,8 @@ jobs:
 
       - id: select_tag
         run: |
-          TAG=$(echo "${{ steps.meta.outputs.tags }}" | tr ' ' '\n' | grep '^ghcr.io/.*/sha-' | head -n1)
-          echo "image_ref=$TAG" >> $GITHUB_OUTPUT
+          IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/wordpress
+          echo "image_ref=${IMAGE_NAME}@${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
 
   trigger-iac:
     needs: build
